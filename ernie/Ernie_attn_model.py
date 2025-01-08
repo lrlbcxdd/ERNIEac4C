@@ -9,19 +9,20 @@ from tqdm import tqdm
 from src.ernie_rna.criterions.ernie_rna import *
 from src.utils import ErnieRNAOnestage, load_pretrained_ernierna
 
-
-os.environ['CUDA_VISIBLE_DEVICES'] = '3'
-dataset = 4
-batchsize = 4
-half_length = 207
-print("batchsize:",batchsize)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+batchsize = 1
+half_length = 50
+dataset = 1
+print("batchsize:", batchsize)
+print("dataset:", dataset)
 print("start")
 print("build model")
-print("left cuda:",torch.cuda.device_count())
+print("left cuda:", torch.cuda.device_count())
 GLUE_TASKS = ["cola", "mnli", "mnli-mm", "mrpc", "qnli", "qqp", "rte", "sst2", "stsb", "wnli"]
 task = "cola"
-pretrained_model_path = "/mnt/sdb/home/lrl/code/git_ERNIE/ERNIE-RNA/checkpoint/ERNIE-RNA_checkpoint/ERNIE-RNA_pretrain.pt"
-arg_overrides = {'data': '/mnt/sdb/home/lrl/code/git_ERNIE/ERNIE-RNA/src/dict/'}
+pretrained_model_path = "/home/pod/shared-nvme/ERNIE-RNA/checkpoint/ERNIE-RNA_checkpoint/ERNIE-RNA_pretrain.pt"
+arg_overrides = {'data': '/home/pod/shared-nvme/ERNIE-RNA/src/dict/'}
+
 
 class EarlyStopping:
     def __init__(self, patience=10, verbose=False, delta=0):
@@ -50,7 +51,6 @@ class EarlyStopping:
             self.best_score = score
             # self.save_checkpoint(val_loss, model)
             self.counter = 0
-
 
 
 class RNADataset(Data.Dataset):
@@ -131,10 +131,10 @@ def evaluate(data_iter, net, criterion):
     label_pred = []
     label_real = []
 
-    for j, (one_d, two_d ,labels) in enumerate(tqdm(data_iter), 0):
-        one_d = one_d.to('cuda:3')
-        two_d = two_d.to('cuda:3')
-        labels = labels.to('cuda:3')
+    for j, (one_d, two_d, labels) in enumerate(tqdm(data_iter), 0):
+        one_d = one_d.to(device)
+        two_d = two_d.to(device)
+        labels = labels.to(device)
 
         output = net(one_d, two_d)
         loss = criterion(output, labels)
@@ -145,13 +145,19 @@ def evaluate(data_iter, net, criterion):
         pred_prob = pred_prob + pred_prob_positive.tolist()
         label_pred = label_pred + output.argmax(dim=1).tolist()
         label_real = label_real + y_cpu.tolist()
+
+        del one_d, two_d, labels, output  # Delete to release memory on GPU
+
     performance, roc_data, prc_data = caculate_metric(pred_prob, label_pred, label_real)
     return performance, roc_data, prc_data, loss
 
-def load_pretrained_ernierna(mlm_pretrained_model_path,arg_overrides):
-    rna_models, _, _ = checkpoint_utils.load_model_ensemble_and_task(mlm_pretrained_model_path.split(os.pathsep),arg_overrides=arg_overrides)
+
+def load_pretrained_ernierna(mlm_pretrained_model_path, arg_overrides):
+    rna_models, _, _ = checkpoint_utils.load_model_ensemble_and_task(mlm_pretrained_model_path.split(os.pathsep),
+                                                                     arg_overrides=arg_overrides)
     model_pretrained = rna_models[0]
     return model_pretrained
+
 
 # Note that load_metric has loaded the proper metric associated to your task, which is:
 task_to_keys = {
@@ -170,40 +176,21 @@ task_to_keys = {
 num_labels = 2
 metric_name = "accuracy"
 
-class Ernierna(nn.Module):
-    def __init__(self,):
-        super(Ernierna, self).__init__()
-        self.length = 415
 
+class Ernierna(nn.Module):
+    def __init__(self):
+        super(Ernierna, self).__init__()
+        self.length = 103
         self.hidden_dim = 25
         self.emb_dim = 768
         self.attn_len = 51
 
-
         self.model_pretrained = load_pretrained_ernierna(pretrained_model_path, arg_overrides)
-        self.ernie = ErnieRNAOnestage(self.model_pretrained.encoder).to('cuda:3')
+        self.ernie = ErnieRNAOnestage(self.model_pretrained.encoder).to(device)
 
-        # self.filter_sizes = [1, 2, 4, 8, 16, 24, 32, 64]  # 0.9108
-        # self.filter_sizes = [2, 4, 8, 16, 32, 64, 128, 192]  # 0.9108
-        self.filter_sizes = [2, 4, 8, 16, 32, 64, 128, 256]   # 0.9297
-        # self.filter_sizes = [1, 2, 4, 8, 16, 32, 64, 128]   # 0.9135
-        # self.filter_sizes = [1, 2, 4, 8, 16, 24, 32, 64]  # 0.9108
-        # self.filter_sizes = [64, 64, 64, 64, 64, 64, 64, 64]    #  0.9081
-        # self.filter_sizes = [16, 32, 16, 64, 128, 64, 256, 128]     # 0.9189
-        # self.filter_sizes = [2, 2, 2, 2, 2, 2, 2, 2]     # 0.9135
-        # self.filter_sizes = [1, 2, 3, 4 ,8 ,16 ,24 ,32]     # 0.9027
-        # self.filter_sizes = [1, 2, 4, 8, 1, 2, 4, 8]  # 0.9054
-        # self.filter_sizes = [4, 8, 16, 32, 64, 128, 192, 256]  # 0.9135
-        # self.filter_sizes = [4, 8, 16, 32, 64, 128, 256, 384]  # 0.9162
-        # self.filter_sizes = [8, 16, 32, 64, 128, 192, 256, 384]  # 0.9270
-        # self.filter_sizes = [4, 8, 16, 32, 64, 128, 160, 256]  # 0.9162
-        # self.filter_sizes = [2, 4, 8, 16, 32, 64, 128, 256]  # 0.9108
-        # self.filter_sizes = [3, 6, 12, 24, 48, 96, 192, 384]    # 0.9081 filter = 32
-        # self.filter_sizes = [256, 256, 256, 256, 256, 256, 256, 256]  # 0.9081 , filter = 32
-        # self.filter_sizes = [128, 256, 128, 256, 128, 256, 128, 256]  # 0.9135 , filter = 32
-        # self.filter_sizes = [8, 16, 32, 64, 128, 192, 256, 384]  # 0.9270, filter = 64
-        # self.filter_sizes = [3, 6, 12, 24, 48, 96, 192, 384]    # 0.9054, filter = 64
-
+        # self.filter_sizes = [2, 4, 8, 16, 32, 64, 128, 256]
+        # self.filter_sizes = [1, 2, 4, 8, 16, 32, 64, 128]
+        self.filter_sizes = [1, 2, 4, 8, 16, 32, 64, 96]
         self.num_filters = 64
 
         self.convs_emb = nn.ModuleList(
@@ -218,33 +205,43 @@ class Ernierna(nn.Module):
             nn.Linear(len(self.filter_sizes) * self.num_filters, 2)
         )
 
+    def forward(self, one_d, two_d):
+        embedding = torch.Tensor().to(device)
+        rna_attn_map_embedding = torch.Tensor().to(device)
 
-    def forward(self, one_d, two_d):  # torch.Size([16, 1, length + 2])
-        embedding = torch.Tensor().to('cuda:3')
-        rna_attn_map_embedding = torch.Tensor().to('cuda:3')
+        # for od, td in zip(one_d, two_d):
+        #     output = self.ernie(od, td)  # torch.Size([1, length, dmodel])
+        #     embedding = torch.cat((embedding, output), dim=0)
+        #     attn_output = self.ernie(od, td, return_attn_map=True).to('cuda:0')  # torch.Size([length, length])
+        #     rna_attn_map_embedding = torch.cat((rna_attn_map_embedding, attn_output.unsqueeze(dim=0)), dim=0)
 
-        for od, td in zip(one_d, two_d):
-            output = self.ernie(od, td)  # torch.Size([1, length, dmodel])
-            embedding = torch.cat((embedding, output), dim=0)
-            attn_output = self.ernie(od, td, return_attn_map=True)  # torch.Size([length, length])
-            rna_attn_map_embedding = torch.cat((rna_attn_map_embedding, attn_output.unsqueeze(dim=0)), dim=0)
+        one_d = one_d.squeeze(1)
+        two_d = two_d.squeeze(1)
+        output = self.ernie(one_d, two_d)  # torch.Size([1, length, dmodel])
+        embedding = output
+        attn_output = self.ernie(one_d, two_d, return_attn_map=True)
+        rna_attn_map_embedding = attn_output.unsqueeze(dim=0)
 
-
-        embedding = embedding.unsqueeze(dim=1)  # torch.Size([batch size,1, length, dmodel])
+        embedding = embedding.unsqueeze(dim=1)
+        origin_embedding = embedding
         embedding = [torch.tanh(conv(embedding)).squeeze(3) for conv in self.convs_emb]
         embedding = [torch.max_pool1d(i, i.size(2)).squeeze(2) for i in embedding]
-        embedding = torch.cat(embedding, 1) # torch.Size([batch size, 512])
+        embedding = torch.cat(embedding, 1)
 
-        rna_attn_map_embedding = rna_attn_map_embedding.unsqueeze(dim=1)    # torch.Size([batchsize, 1 ,length, length])
+        rna_attn_map_embedding = rna_attn_map_embedding.unsqueeze(dim=1)
+        origin_attn = rna_attn_map_embedding
         rna_attn_map_embedding = [torch.tanh(conv(rna_attn_map_embedding)).squeeze(3) for conv in self.convs_attn]
         rna_attn_map_embedding = [torch.max_pool1d(i, i.size(2)).squeeze(2) for i in rna_attn_map_embedding]
-        rna_attn_map_embedding = torch.cat(rna_attn_map_embedding, 1)   # torch.Size([batch size, 512])
+        rna_attn_map_embedding = torch.cat(rna_attn_map_embedding, 1)
 
-        # 分类器
         output = self.fc(torch.cat((embedding, rna_attn_map_embedding), dim=1))
 
         return output
 
+
+def to_log(log):
+    with open(f"./results/result.log", "a+") as f:
+        f.write(log + '\n')
 
 
 def set_seed(seed):
@@ -260,6 +257,7 @@ def set_seed(seed):
     os.environ['PYTHONHASHSEED'] = str(seed)
     os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
 
+
 if __name__ == '__main__':
 
     # 使用说明：
@@ -268,30 +266,29 @@ if __name__ == '__main__':
     # 2.erniedataset的length，序列的全长
     # 3.模型的分类层的神经元个数
     # 4.保存的文件名和文件路径
-    SEED = 29
-    set_seed(seed= SEED)
+    SEED = 42
+    set_seed(seed=SEED)
 
     model_name = 'RNA'
 
-    train_loader , valid_loader , test_loader =  ernie_loader.ernie_load_ac4c_data(batchsize=batchsize,halfLength=half_length)
+    train_loader, valid_loader, test_loader = ernie_loader.ernie_load_ac4c_data(batchsize=batchsize,
+                                                                                halfLength=half_length, dataset=dataset)
 
     epoch_num = 50
 
     print('training...')
 
     # load model
-    model = Ernierna().to('cuda:3')
+    model = Ernierna().to(device)
     print('Model Loading Done!!!')
 
-
-    optimizer = torch.optim.AdamW(model.parameters(),lr=1e-5)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
 
     criterion = nn.CrossEntropyLoss()
     early_stopping = EarlyStopping()
 
-
     # criterion = MarginLoss(0.9, 0.1, 0.5)
-    best_acc = 0
+    best_valid_acc = 0
     best_test_acc = 0
     best_epoch = 0
     print("模型数据已经加载完成,现在开始模型训练。")
@@ -303,10 +300,10 @@ if __name__ == '__main__':
         t0 = time.time()
         model.train()
         for i, (one_d, two_d, labels) in enumerate(tqdm(train_loader)):
-        # for one_d, two_d, labels in train_loader:
-            one_d = one_d.to('cuda:3')
-            two_d = two_d.to('cuda:3')
-            labels = labels.to('cuda:3')
+            # for one_d, two_d, labels in train_loader:
+            one_d = one_d.to(device)
+            two_d = two_d.to(device)
+            labels = labels.to(device)
 
             output = model(one_d, two_d)
             optimizer.zero_grad()  # 梯度清0
@@ -326,14 +323,12 @@ if __name__ == '__main__':
         predicted_labels = np.argmax(total_outputs, axis=1)
         train_acc = np.mean(predicted_labels == total_labels)
 
-        print('testing...')
+        print('validing...')
 
         model.eval()
         with torch.no_grad():
             valid_performance, valid_roc_data, valid_prc_data, valid_loss = evaluate(valid_loader, model, criterion)
-            test_performance, test_roc_data, test_prc_data, _ = evaluate(test_loader, model, criterion)
 
-        # results = f"\nepoch: {epoch + 1}, loss: {np.mean(loss_ls):.5f}, loss1: {np.mean(loss1_ls):.5f}, loss2_3: {np.mean(loss2_3_ls):.5f}\n"
         results = f"\nepoch: {epoch + 1}, loss: {np.mean(loss_ls):.5f}\n"
         results += f'Train: {train_acc:.4f}, time: {time.time() - t0:.2f}'
         results += '\n' + '=' * 16 + ' Valid Performance. Epoch[{}] '.format(epoch + 1) + '=' * 16 \
@@ -342,38 +337,27 @@ if __name__ == '__main__':
             valid_performance[4], valid_performance[5], valid_performance[6], valid_performance[7]) + '\n' + '=' * 60
         print(results)
 
-        test_results = '\n' + '=' * 16 + colored(' Test Performance. Epoch[{}] ', 'red').format(
-            epoch + 1) + '=' * 16 \
-                       + '\n[ACC,\tBACC, \tSE,\t\tSP,\t\tMCC,\tAUC,\tAUROC,\tAUCPR]\n' + '{:.4f},\t{:.4f},\t{:.4f},\t{:.4f},\t{:.4f},\t{:.4f},\t{:.4f},\t{:.4f}'.format(
-            test_performance[0], test_performance[1], test_performance[2], test_performance[3],
-            test_performance[4], test_performance[5], test_performance[6], test_performance[7]) + '\n' + '=' * 60
-        print(test_results)
+        valid_acc = valid_performance[0]  # performance: [ACC, Sensitivity, Specificity, AUC, MCC]
 
-        valid_acc = valid_performance[0]  # test_performance: [ACC, Sensitivity, Specificity, AUC, MCC]
-        test_acc = test_performance[0]
-        if test_acc > best_test_acc:
-            best_test_acc = test_acc
+        if valid_acc > best_valid_acc:
+
+            best_valid_acc = valid_acc
             best_epoch = epoch + 1
-            # best_performance = valid_performance
-            filename = '{},{}, {}[{:.4f}].pt'.format('Test_Atten_model_{}_SEED={}_data{}'.format(half_length * 2 + 1 ,SEED,dataset) + ', epoch[{}]'.format(epoch + 1),model_name, 'ACC',
-                                                  test_performance[0])
-            save_path_pt = os.path.join(f'/mnt/sdb/home/lrl/code/Saved_models/Models/Attn/', filename)
+            best_performance = valid_performance
+            filename = '{},{}, {}[{:.4f}].pt'.format(
+                'Atten_model_{}_SEED={}_dataset={}'.format(half_length * 2 + 1, SEED, dataset) + ', epoch[{}]'.format(
+                    epoch + 1), model_name, 'ACC',
+                valid_performance[0])
+            save_path_pt = os.path.join(f'/home/pod/shared-nvme/Saved_models1113/Models/Attn/', filename)
             torch.save(model.state_dict(), save_path_pt, _use_new_zipfile_serialization=False)
 
-            # to_log(test_results, index)
-            test_ROC = valid_roc_data
-            test_PRC = valid_prc_data
-            save_path_roc = os.path.join(f'/mnt/sdb/home/lrl/code/Saved_models/ROC/Attn/', filename)
-            save_path_prc = os.path.join(f'/mnt/sdb/home/lrl/code/Saved_models/PRC/Attn/', filename)
-            torch.save(test_roc_data, save_path_roc, _use_new_zipfile_serialization=False)
-            torch.save(test_prc_data, save_path_prc, _use_new_zipfile_serialization=False)
-
+            save_path_roc = os.path.join(f'/home/pod/shared-nvme/Saved_models1113/ROC/Attn/', filename)
+            save_path_prc = os.path.join(f'/home/pod/shared-nvme/Saved_models1113/PRC/Attn/', filename)
+            torch.save(valid_roc_data, save_path_roc, _use_new_zipfile_serialization=False)
+            torch.save(valid_prc_data, save_path_prc, _use_new_zipfile_serialization=False)
 
         early_stopping(valid_acc, model)
         if early_stopping.early_stop:
             print("Early stopping")
             break
     print(best_test_acc)
-
-
-

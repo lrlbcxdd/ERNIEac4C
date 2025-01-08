@@ -13,12 +13,13 @@ def process_data(sequences,length):
     return new_sequences
 
 
-def load_ac4c_data(halfLength,batchsize):
+def load_ac4c_data(halfLength,batchsize,dataset):
     label_enc = {v:k for k,v in enumerate('NATCG')} # Z:0
 
-    train_file = r"/mnt/sdb/home/lrl/code/new_ac4c/ernie/data/new_test_data/nofold_data_v4/train.csv"
-    val_file = r"/mnt/sdb/home/lrl/code/new_ac4c/ernie/data/new_test_data/nofold_data_v4/val.csv"
-    test_file = r"/mnt/sdb/home/lrl/code/new_ac4c/ernie/data/new_test_data/nofold_data_v4/test.csv"
+    train_file = r"/root/shared-nvme/ac4c/ernie/data/new_test_data/new_modify_data_1113_" + str(dataset) + "/train.csv"
+    val_file = r"/root/shared-nvme/ac4c/ernie/data/new_test_data/new_modify_data_1113_" + str(dataset) + "/val.csv"
+    test_file = r"/root/shared-nvme/ac4c/ernie/data/new_test_data/new_modify_data_1113_" + str(dataset) + "/test.csv"
+
 
     train_data = pd.read_csv(train_file)
     val_data = pd.read_csv(val_file)

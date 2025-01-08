@@ -10,14 +10,17 @@ from ernie.dataloader import ac4c_loader
 import random
 import os
 
-half_length = 207
-batch_size = 32
+half_length = 500
+dataset = 8
+batch_size = 8
+print("batchsize:",batch_size)
+print("dataset:",dataset)
 print("left cuda :",torch.cuda.device_count())
 
-device = torch.device("cuda:3")
+device = torch.device("cuda:0")
 
 class EarlyStopping:
-    def __init__(self, patience=7, verbose=False, delta=0):
+    def __init__(self, patience=10, verbose=False, delta=0):
 
         self.patience = patience
         self.verbose = verbose
@@ -100,12 +103,12 @@ def caculate_metric(pred_prob, label_pred, label_real):
 
     BACC = 0.5 * Sensitivity + 0.5 * Specificity
 
-    performance = [ACC, BACC, Sensitivity, Specificity, MCC, AUC]
+    performance = [ACC, Sensitivity, Specificity, MCC, AUC,AP]
     roc_data = [FPR, TPR, AUC]
     prc_data = [recall, precision, AP]
     return performance, roc_data, prc_data
 
-def evaluate(data_iter, net, criterion):
+def evaluate(data_iter, model, criterion):
     pred_prob = []
     label_pred = []
     label_real = []
@@ -113,7 +116,7 @@ def evaluate(data_iter, net, criterion):
     for j, (data, labels) in enumerate(tqdm(data_iter), 0):
         data = data.to(device)
         labels = labels.to(device)
-        output,_ = net(data)
+        output,_ = model(data)
         loss = criterion(output, labels)
 
         outputs_cpu = output.cpu()
@@ -133,7 +136,7 @@ def to_log(log):
 
 
 criterion_CE = nn.CrossEntropyLoss()
-train_iter , val_iter , test_iter , max_len=  ac4c_loader.load_ac4c_data(halfLength=half_length,batchsize=batch_size)
+train_iter , val_iter , test_iter , max_len=  ac4c_loader.load_ac4c_data(halfLength=half_length,batchsize=batch_size,dataset = dataset)
 
 
 if __name__ == '__main__':
@@ -147,17 +150,17 @@ if __name__ == '__main__':
 
     model_names =['Transformer','GRU','LSTM','TextCNN','Transformer+GRU']
 
-    model_name = model_names[1]
+    model_name = model_names[2]
     early_stopping = EarlyStopping()
 
     # net = Transformer_GRU.model(415).to(device)
     # net = TextCNN.CnnModel().to(device)
-    net = GRU.model(max_len=max_len).to(device)
-    # net = lstm.LSTMModel(max_len=max_len).to(device)
+    # net = GRU.model(max_len=max_len).to(device)
+    net = lstm.LSTMModel(max_len=max_len).to(device)
     # net = Another_Transformer.Transformer(max_len=max_len).to(device)
     # net = Transformer_GRU.model(max_len=max_len).to(device)
 
-    model_path = "/mnt/sdb/home/lrl/code/Saved_models/Models/GRU/model_415, epoch[2],GRU, ACC[0.8595].pt"
+    model_path = "/root/shared-nvme/Saved_models1113/Models/LSTM/model_LSTM_dataset=8_length=1001, epoch[5],LSTM, ACC[0.7622].pt"
     net.load_state_dict(torch.load(model_path))
 
     net.eval()
@@ -166,7 +169,7 @@ if __name__ == '__main__':
 
     test_results = '\n' + '=' * 16 + colored(' Test Performance. Epoch[{}] ', 'red').format(
         1) + '=' * 16 \
-                   + '\n[ACC,\tBACC, \tSE,\t\tSP,\t\tMCC,\tAUC]\n' + '{:.4f},\t{:.4f},\t{:.4f},\t{:.4f},\t{:.4f},\t{:.4f}'.format(
+                   + '\n[ACC, \tSE,\t\tSP,\t\tMCC,\tAUC\tPRC]\n' + '{:.4f},\t{:.4f},\t{:.4f},\t{:.4f},\t{:.4f},\t{:.4f}'.format(
         test_performance[0], test_performance[1], test_performance[2], test_performance[3],
         test_performance[4], test_performance[5]) + '\n' + '=' * 60
     print(test_results)

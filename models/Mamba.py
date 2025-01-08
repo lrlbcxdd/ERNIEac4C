@@ -3,8 +3,6 @@ import torch.nn as nn
 from torch.nn import functional as F
 from einops import rearrange
 
-
-
 torch.autograd.set_detect_anomaly(True)
 
 
